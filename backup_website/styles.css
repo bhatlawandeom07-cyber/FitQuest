@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+  --primary: #3b82f6;
+  --border: rgba(255, 255, 255, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  background-color: #000000;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: #000000;
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Custom Minimal Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Text Scanner Keyframes (animated-text-10) */
+@keyframes text-scanner-sweep {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0% 0; }
+}
+
+@keyframes text-scanner-laser {
+  0% { left: 0%; transform: translateX(0%); }
+  100% { left: 100%; transform: translateX(-100%); }
+}
+
+.animate-scanner-text {
+  animation: text-scanner-sweep var(--scanner-duration, 2.6s) ease-in-out infinite alternate;
+}
+
+.animate-scanner-laser {
+  animation: text-scanner-laser var(--scanner-duration, 2.6s) ease-in-out infinite alternate;
+}

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warp Gradient — FitQuest Shader</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.cdnfonts.com">
+  <link href="https://fonts.cdnfonts.com/css/sf-pro-display" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      overflow-x: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", system-ui, sans-serif;
+      letter-spacing: -0.015em;
+      -webkit-font-smoothing: antialiased;
+    }
+  </style>
+</head>
+<body class="bg-black text-white antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useEffect, useRef, useState } = React;
+
+    const MAX_COLORS = 5;
+
+    const VERTEX = `#version 300 es
+    in vec2 a_position;
+    void main() { gl_Position = vec4(a_position, 0.0, 1.0); }`;
+
+    const FRAGMENT = `#version 300 es
+    precision highp float;
+    uniform vec2 u_size;
+    uniform float u_dpr;
+    uniform float u_clock;
+    uniform float u_scale;
+    uniform float u_turn;
+    uniform vec4 u_palette[5];
+    uniform int u_count;
+    uniform int u_pattern;
+    uniform float u_density;
+    uniform float u_softness;
+    uniform float u_warp;
+    uniform float u_turbulence;
+    out vec4 outColor;
+
+    float hash(vec2 cell) {
+      return fract(sin(dot(cell, vec2(41.37, 289.13))) * 17853.217);
+    }
+
+    float lean(vec2 cell, vec2 offset) {
+      float angle = 6.2831853 * hash(cell);
+      return dot(vec2(cos(angle), sin(angle)), offset);
+    }
+
+    float noise(vec2 p) {
+      vec2 cell = floor(p);
+      vec2 f = p - cell;
+      vec2 fade = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+      float bottom = mix(lean(cell, f), lean(cell + vec2(1.0, 0.0), f - vec2(1.0, 0.0)), fade.x);
+      float top = mix(lean(cell + vec2(0.0, 1.0), f - vec2(0.0, 1.0)), lean(cell + 1.0, f - 1.0), fade.x);
+      return mix(bottom, top, fade.y);
+    }
+
+    const mat2 TURN = mat2(0.8776, 0.4794, -0.4794, 0.8776);
+
+    float layered(vec2 p, int layers) {
+      float sum = 0.0;
+      float weight = 0.55;
+      for (int i = 0; i < 5; i++) {
+        if (i >= layers) break;
+        sum += weight * noise(p);
+        p = TURN * p * 1.97 + vec2(3.7, -1.9);
+        weight *= 0.5;
+      }
+      return sum;
+    }
+
+    void main() {
+      vec2 p = (gl_FragCoord.xy - 0.5 * u_size) / u_dpr * mix(0.0065, 0.0012, u_scale);
+      float c = cos(u_turn);
+      float s = sin(u_turn);
+      p = mat2(c, s, -s, c) * p;
+
+      float t = 0.15 * u_clock;
+      int layers = 1 + int(u_turbulence * 4.0 + 0.5);
+      vec2 drift = vec2(t, -0.6 * t);
+      vec2 q = 0.6 * p;
+      vec2 first = vec2(layered(q + drift, layers), layered(q + vec2(5.3, -2.1) - drift, layers));
+      vec2 second = vec2(
+        layered(q + 1.8 * first + vec2(-4.6, 7.2) + drift.yx, layers),
+        layered(q + 1.8 * first + vec2(8.1, 1.4) - 0.5 * drift, layers)
+      );
+      vec2 w = p + 1.8 * u_warp * second;
+
+      float field;
+      if (u_pattern == 0) {
+        field = 0.5 + 0.5 * sin(3.14159265 * mix(0.5, 3.5, u_density) * w.y);
+      } else if (u_pattern == 1) {
+        float k = mix(1.0, 5.0, u_density);
+        field = 0.5 + 0.5 * sin(k * w.x) * sin(k * w.y);
+      } else {
+        float spread = mix(2.5, 0.1, u_density);
+        field = smoothstep(-spread, spread, w.y);
+      }
+
+      vec4 a = u_palette[0];
+      vec4 color = vec4(a.rgb * a.a, a.a);
+      if (u_count > 1) {
+        float x = clamp(field, 0.0, 1.0) * float(u_count - 1);
+        int i = min(int(x), u_count - 2);
+        float reach = 0.5 * u_softness + fwidth(x);
+        float blend = smoothstep(0.5 - reach, 0.5 + reach, x - float(i));
+        vec4 from = u_palette[i];
+        vec4 to = u_palette[i + 1];
+        color = mix(vec4(from.rgb * from.a, from.a), vec4(to.rgb * to.a, to.a), blend);
+      }
+      color.rgb += (hash(gl_FragCoord.xy) - 0.5) / 255.0;
+      outColor = color;
+    }
+    `;
+
+    const PRESETS = {
+      tide: {
+        colors: ["#04090f", "#1f5f72", "#6fb3c2"],
+        pattern: 0,
+        density: 0.4,
+        softness: 1,
+        warp: 0.8,
+        turbulence: 0.2,
+        scale: 0.6,
+        rotation: -20,
+        speed: 0.5,
+      },
+      abyss: {
+        colors: ["#020308", "#102447", "#00F5D4", "#020308"],
+        pattern: 0,
+        density: 0.35,
+        softness: 1,
+        warp: 0.9,
+        turbulence: 0.25,
+        scale: 0.5,
+        rotation: 0,
+        speed: 0.4,
+      },
+      dusk: {
+        colors: ["#100a18", "#6d63c9", "#e07a5f"],
+        pattern: 1,
+        density: 0.45,
+        softness: 1,
+        warp: 0.7,
+        turbulence: 0.1,
+        scale: 0.5,
+        rotation: 45,
+        speed: 0.5,
+      },
+    };
+
+    function hexToRgba(hex) {
+      let h = hex.trim().replace(/^#/, "");
+      if (h.length === 3) h = h.replace(/./g, "$&$&");
+      const n = parseInt(h, 16);
+      return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, 1.0];
+    }
+
+    function compile(gl) {
+      const program = gl.createProgram();
+      for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]]) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, source);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) return null;
+        gl.attachShader(program, s);
+        gl.deleteShader(s);
+      }
+      gl.linkProgram(program);
+      return program;
+    }
+
+    function WarpGradient({ preset = "abyss", grain = 0.25 }) {
+      const canvasRef = useRef(null);
+      const conf = PRESETS[preset] || PRESETS.abyss;
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const gl = canvas.getContext("webgl2", { alpha: true });
+        if (!gl) return;
+        const program = compile(gl);
+        if (!program) return;
+
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+        const pos = gl.getAttribLocation(program, "a_position");
+        gl.enableVertexAttribArray(pos);
+        gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+        gl.useProgram(program);
+
+        const u = (name) => gl.getUniformLocation(program, name);
+        const loc = {
+          size: u("u_size"),
+          dpr: u("u_dpr"),
+          clock: u("u_clock"),
+          scale: u("u_scale"),
+          turn: u("u_turn"),
+          palette: u("u_palette"),
+          count: u("u_count"),
+          pattern: u("u_pattern"),
+          density: u("u_density"),
+          softness: u("u_softness"),
+          warp: u("u_warp"),
+          turbulence: u("u_turbulence"),
+        };
+
+        const pal = new Float32Array(MAX_COLORS * 4);
+        conf.colors.forEach((col, idx) => {
+          pal.set(hexToRgba(col), idx * 4);
+        });
+
+        let clock = 0, last = 0, raf = 0;
+        const draw = (now) => {
+          if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+          }
+          const dt = last ? Math.min((now - last) / 1000, 0.05) : 0.016;
+          last = now;
+          clock += dt * conf.speed;
+
+          gl.uniform2f(loc.size, canvas.width, canvas.height);
+          gl.uniform1f(loc.dpr, window.devicePixelRatio || 1);
+          gl.uniform1f(loc.clock, clock);
+          gl.uniform1f(loc.scale, conf.scale);
+          gl.uniform1f(loc.turn, (conf.rotation * Math.PI) / 180);
+          gl.uniform4fv(loc.palette, pal);
+          gl.uniform1i(loc.count, conf.colors.length);
+          gl.uniform1i(loc.pattern, conf.pattern);
+          gl.uniform1f(loc.density, conf.density);
+          gl.uniform1f(loc.softness, conf.softness);
+          gl.uniform1f(loc.warp, conf.warp);
+          gl.uniform1f(loc.turbulence, conf.turbulence);
+
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+          raf = requestAnimationFrame(draw);
+        };
+        raf = requestAnimationFrame(draw);
+
+        return () => {
+          cancelAnimationFrame(raf);
+          gl.deleteBuffer(buffer);
+          gl.deleteProgram(program);
+        };
+      }, [preset]);
+
+      return (
+        <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+          <canvas ref={canvasRef} className="block w-full h-full" />
+          {grain > 0 && (
+            <div
+              className="absolute inset-0 mix-blend-overlay opacity-25"
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")`
+              }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    function App() {
+      const [preset, setPreset] = useState("abyss");
+
+      return (
+        <div className="relative min-h-screen w-full flex flex-col justify-between p-8 overflow-hidden select-none">
+          <WarpGradient preset={preset} grain={0.25} />
+
+          {/* Top Bar */}
+          <div className="flex items-center justify-between z-10">
+            <div className="flex items-center gap-3">
+              <span className="w-3 h-3 rounded-full bg-cyan-400 animate-ping"></span>
+              <span className="font-mono text-xs text-cyan-400 uppercase tracking-widest font-bold">
+                FITQUEST // LIQUID WARP SHADER THEME
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md p-1.5 rounded-full border border-white/10 text-xs font-mono">
+              <button
+                onClick={() => setPreset("abyss")}
+                className={`px-3 py-1 rounded-full transition-all ${preset === "abyss" ? "bg-cyan-400 text-black font-bold" : "text-white/60 hover:text-white"}`}
+              >
+                ABYSS (CYAN)
+              </button>
+              <button
+                onClick={() => setPreset("tide")}
+                className={`px-3 py-1 rounded-full transition-all ${preset === "tide" ? "bg-cyan-400 text-black font-bold" : "text-white/60 hover:text-white"}`}
+              >
+                TIDE (OCEAN)
+              </button>
+              <button
+                onClick={() => setPreset("dusk")}
+                className={`px-3 py-1 rounded-full transition-all ${preset === "dusk" ? "bg-cyan-400 text-black font-bold" : "text-white/60 hover:text-white"}`}
+              >
+                DUSK (SUNSET)
+              </button>
+            </div>
+          </div>
+
+          {/* Center Stage */}
+          <div className="flex flex-col items-center justify-center text-center max-w-2xl mx-auto z-10 space-y-6">
+            <span className="px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs font-mono uppercase tracking-widest text-white/80">
+              SHADCN PROTOCOL THEME // WEBGL2 LIQUID FLOW
+            </span>
+            <h1 className="text-5xl md:text-7xl font-extrabold font-['Syne'] tracking-tight uppercase leading-none bg-clip-text text-transparent bg-gradient-to-b from-white via-neutral-200 to-neutral-400">
+              FITQUEST
+            </h1>
+            <p className="text-neutral-300 text-sm md:text-base leading-relaxed font-mono">
+              Domain-warped liquid gradient shader running at 60 FPS in WebGL2 with procedural SVG film grain. This ambient background will live throughout the FitQuest experience.
+            </p>
+          </div>
+
+          {/* Footer note */}
+          <div className="text-center font-mono text-xs text-white/40 z-10 uppercase tracking-widest">
+            READY FOR LANDING PAGE ARCHITECTURE →
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
